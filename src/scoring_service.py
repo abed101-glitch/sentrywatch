@@ -7,7 +7,7 @@ import threading
 import joblib
 import pandas as pd
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File, Form
 from pydantic import BaseModel, ConfigDict
 
 from fastapi.responses import HTMLResponse
@@ -260,44 +260,82 @@ class Onboard(BaseModel):
     business: str
     typical_order: float = 45.0
     backfill: int = 0
+    source: str = "kaggle"          # kaggle | synthetic
 
 
 @app.post("/onboard")
 def onboard(req: Onboard):
     slug = "".join(c for c in req.business.upper()
-               if c.isalnum() and c.isascii())[:10] or "MERCHANT"
+                   if c.isalnum() and c.isascii())[:10] or "MERCHANT"
+    account_id = f"{slug}-001"
+    n = max(0, min(int(req.backfill), 2000))
+
+    if n and req.source == "synthetic":
+        amounts = [max(1.0, random.gauss(req.typical_order, req.typical_order * 0.28))
+                   for _ in range(n)]
+        note = ("Backfill generated around the typical order value you gave. "
+                "Use the Kaggle option to seed from real transaction amounts instead.")
+    elif n:
+        pool = real_amounts()
+        amounts = random.Random(42).sample(pool, min(n, len(pool)))
+        note = (f"Seeded from {len(pool):,} real transaction amounts in the Kaggle "
+                "Credit Card Fraud dataset - the same rows the model was trained on. "
+                "Fraudulent rows are excluded, because a baseline is what NORMAL "
+                "looks like. Nothing is generated.")
+    else:
+        amounts, note = [], ("No history imported - the account is cold and will fall "
+                             "back to the global baseline until it has "
+                             f"{baseline_store.MIN_HISTORY} orders.")
+
+    seed_account(account_id, amounts)
+    return {**baseline_summary(account_id, amounts),
+            "business": req.business, "source": req.source if n else "none",
+            "note": note}
+
+
+@app.post("/onboard/upload")
+async def onboard_upload(file: UploadFile = File(...), business: str = Form("Merchant")):
+    """Seed a baseline from the merchant's own order history."""
+    slug = "".join(c for c in business.upper()
+                   if c.isalnum() and c.isascii())[:10] or "MERCHANT"
     account_id = f"{slug}-001"
 
-    seeded = 0
-    if req.backfill:
-        now = time.time()
-        n = max(0, min(int(req.backfill), 500))
-        spread = 86400.0 * 30
-        for i in range(n):
-            amt = max(1.0, random.gauss(req.typical_order, req.typical_order * 0.28))
-            BASELINES.observe(account_id, amt, now - spread + (i * spread / max(n, 1)),
-                              autocommit=False)
-            seeded += 1
-        BASELINES.commit()
+    raw = (await file.read(4_000_000)).decode("utf-8", errors="replace")
+    import csv as _csv, io as _io
+    rdr = _csv.DictReader(_io.StringIO(raw))
+    if not rdr.fieldnames:
+        return {"ok": False, "error": "that file has no header row"}
 
-    warm = seeded >= baseline_store.MIN_HISTORY
+    wanted = ("amount", "total", "value", "price", "sum", "grand_total")
+    col = next((c for c in rdr.fieldnames
+                if c and c.strip().lower() in wanted), None)
+    if col is None:
+        return {"ok": False,
+                "error": "no amount column found - expected one named "
+                         "Amount, Total, Value or Price. Found: "
+                         + ", ".join(f for f in rdr.fieldnames if f)[:120]}
 
-    return {
-        "account_id": account_id,
-        "business": req.business,
-        "seeded": seeded,
-        "warm": warm,
-        "min_history": baseline_store.MIN_HISTORY,
-        "still_needed": max(0, baseline_store.MIN_HISTORY - seeded),
-        "endpoint": "http://127.0.0.1:8000/score-checkout",
-        "policy": ("model must flag before anything alerts"
-                   if baseline_store.REQUIRE_ML
-                   else "rule layer: any single signal alerts"),
-        "note": ("Backfill is synthetic here, generated around the typical order value "
-                 "you gave. A real onboarding would replay the merchant's own order "
-                 "history through the same call, which is the only thing this is "
-                 "standing in for."),
-    }
+    amounts, skipped = [], 0
+    for row in rdr:
+        try:
+            v = float(str(row[col]).replace(",", "").replace("$", "").strip())
+            if v > 0:
+                amounts.append(v)
+        except (TypeError, ValueError):
+            skipped += 1
+        if len(amounts) >= 2000:
+            break
+
+    if not amounts:
+        return {"ok": False, "error": f"no usable numbers in column '{col}'"}
+
+    seed_account(account_id, amounts)
+    return {"ok": True, **baseline_summary(account_id, amounts),
+            "business": business, "source": "upload", "column": col,
+            "skipped": skipped,
+            "note": (f"Seeded from {len(amounts):,} rows of your own history "
+                     f"(column '{col}'). Every future order on this account is "
+                     "scored against these numbers.")}
 
 
 @app.get("/checkout", response_class=HTMLResponse)
@@ -386,7 +424,57 @@ class AlertConfig(BaseModel):
     chat_id: str = ""
 
 
-# Class 11
+# Class 11 - seed a baseline from the REAL dataset instead of generating numbers
+_REAL_AMOUNTS: list[float] = []
+
+
+def real_amounts() -> list[float]:
+    global _REAL_AMOUNTS
+    if not _REAL_AMOUNTS:
+        import csv as _csv
+        from replay import DEFAULT_CSV
+        vals = []
+        with open(DEFAULT_CSV, newline="") as f:
+            for row in _csv.DictReader(f):
+                if row.get("Class") == "1":
+                    continue          # a baseline is what NORMAL looks like
+                try:
+                    vals.append(float(row["Amount"]))
+                except (TypeError, ValueError):
+                    continue
+        _REAL_AMOUNTS = vals
+    return _REAL_AMOUNTS
+
+
+def seed_account(account_id: str, amounts: list[float]) -> int:
+    now = time.time()
+    spread = 86400.0 * 30
+    n = len(amounts)
+    for i, amt in enumerate(amounts):
+        BASELINES.observe(account_id, max(0.01, float(amt)),
+                          now - spread + (i * spread / max(n, 1)), autocommit=False)
+    BASELINES.commit()
+    return n
+
+
+def baseline_summary(account_id: str, amounts: list[float]) -> dict:
+    import statistics as _st
+    warm = len(amounts) >= baseline_store.MIN_HISTORY
+    return {
+        "account_id": account_id,
+        "seeded": len(amounts),
+        "warm": warm,
+        "min_history": baseline_store.MIN_HISTORY,
+        "still_needed": max(0, baseline_store.MIN_HISTORY - len(amounts)),
+        "typical": round(_st.median(amounts), 2) if amounts else None,
+        "mean": round(_st.mean(amounts), 2) if amounts else None,
+        "largest": round(max(amounts), 2) if amounts else None,
+        "endpoint": "/score-checkout",
+        "policy": ("model must flag before anything alerts"
+                   if baseline_store.REQUIRE_ML else "rule layer"),
+    }
+
+
 @app.get("/telegram/link")
 def telegram_link():
     """

@@ -111,17 +111,39 @@
     <div class="body">
       <label for="biz">Business name</label>
       <input id="biz" value="Northside Electronics">
-      <div class="row">
-        <div><label for="typical">Typical order value</label>
-          <input id="typical" type="number" step="1" min="1" value="45"></div>
-        <div><label for="back">Order history to import</label>
-          <select id="back">
-            <option value="0">None — learn from live traffic</option>
-            <option value="35" selected>35 orders</option>
-            <option value="120">120 orders</option>
-            <option value="400">400 orders</option>
-          </select></div>
+
+      <label for="src">Where should the baseline come from?</label>
+      <select id="src">
+        <option value="kaggle" selected>Real transaction data (Kaggle, on the server)</option>
+        <option value="upload">Upload my own order history (CSV)</option>
+        <option value="synthetic">Generate around a typical value</option>
+      </select>
+
+      <div id="kagglebox">
+        <label for="back">How many real orders to import</label>
+        <select id="back">
+          <option value="0">None — learn from live traffic</option>
+          <option value="35">35 orders</option>
+          <option value="120" selected>120 orders</option>
+          <option value="400">400 orders</option>
+        </select>
       </div>
+
+      <div id="uploadbox" style="display:none">
+        <label for="csv">Your order history</label>
+        <input id="csv" type="file" accept=".csv,text/csv">
+        <div class="note" style="margin-top:10px">Any CSV with a column called
+          <b>Amount</b>, <b>Total</b>, <b>Value</b> or <b>Price</b>. Up to 2,000 rows.
+          Only the amounts are read — nothing is stored beyond the running statistics.</div>
+      </div>
+
+      <div id="synthbox" style="display:none">
+        <label for="typical">Typical order value</label>
+        <input id="typical" type="number" step="1" min="1" value="45">
+        <div class="note" style="margin-top:10px">Generated, not real. Use one of the
+          options above if you want the baseline to mean something.</div>
+      </div>
+
       <button id="go">Create account</button>
       <div class="err" id="err"></div>
       <div class="ok" id="ok"></div>
@@ -291,26 +313,55 @@ $('savechat').onclick = async () => {
   b.disabled = false; b.textContent = 'Save and send a test message';
 };
 
+$('src').onchange = () => {
+  const v = $('src').value;
+  $('kagglebox').style.display = v === 'kaggle'    ? 'block' : 'none';
+  $('uploadbox').style.display = v === 'upload'    ? 'block' : 'none';
+  $('synthbox').style.display  = v === 'synthetic' ? 'block' : 'none';
+};
+
 $('go').onclick = async () => {
   $('err').style.display = 'none';
   const biz = $('biz').value.trim();
+  const src = $('src').value;
   if (!biz) { $('err').textContent = 'Enter a business name.'; $('err').style.display='block'; return; }
+  if (src === 'upload' && !$('csv').files.length) {
+    $('err').textContent = 'Choose a CSV file first.'; $('err').style.display='block'; return;
+  }
 
   $('go').disabled = true; $('go').textContent = 'Importing…';
   try {
-    const r = await fetch('/onboard', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ business: biz,
-                             typical_order: parseFloat($('typical').value) || 45,
-                             backfill: parseInt($('back').value, 10) })
-    });
+    let r;
+    if (src === 'upload') {
+      const fd = new FormData();
+      fd.append('file', $('csv').files[0]);
+      fd.append('business', biz);
+      r = await fetch('/onboard/upload', { method: 'POST', body: fd });
+    } else {
+      r = await fetch('/onboard', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ business: biz, source: src,
+                               typical_order: parseFloat($('typical').value) || 45,
+                               backfill: src === 'synthetic' ? 120
+                                       : parseInt($('back').value, 10) })
+      });
+    }
     if (!r.ok) throw new Error(r.status);
     const d = await r.json();
+    if (d.ok === false) {
+      $('err').textContent = d.error;
+      $('err').style.display = 'block';
+      $('go').disabled = false; $('go').textContent = 'Create account';
+      return;
+    }
 
     $('ok').style.display = 'block';
     $('ok').innerHTML = '<table class="kv">' +
       '<tr><td>Account</td><td>' + d.account_id + '</td></tr>' +
-      '<tr><td>Orders imported</td><td>' + d.seeded + '</td></tr>' +
+      '<tr><td>Orders imported</td><td>' + d.seeded +
+        (d.column ? ' (column “' + d.column + '”)' : '') + '</td></tr>' +
+      (d.typical != null ? '<tr><td>Typical order</td><td>' + d.typical + '</td></tr>' +
+                           '<tr><td>Largest seen</td><td>' + d.largest + '</td></tr>' : '') +
       '<tr><td>Baseline</td><td>' +
         (d.warm ? 'ready' : 'learning — ' + d.still_needed + ' more needed') +
       '</td></tr></table>';
