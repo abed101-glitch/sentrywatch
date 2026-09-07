@@ -427,7 +427,13 @@ def score_checkout(tx: Transaction, alert: bool = True):
         reasons = reasons + [f"model comparison failed - {model_error}"]
 
     verdict = {"high": "DECLINE", "medium": "REVIEW", "normal": "APPROVE"}[severity]
-    fraud_result = "NOT FRAUD" if (verdict == "APPROVE" and not model_error) else "FRAUD"
+    # The header has to match the verdict. Calling a REVIEW "FRAUD DETECTED"
+    # next to a 3% risk score reads as if the service is arguing with itself.
+    fraud_result = {"DECLINE": "FRAUD", "REVIEW": "SUSPICIOUS",
+                    "APPROVE": "NOT FRAUD"}[verdict]
+    headline = {"DECLINE": "🚨 FRAUD DETECTED",
+                "REVIEW": "⚠️ FLAGGED FOR REVIEW",
+                "APPROVE": "✅ TRANSACTION SAFE"}[verdict]
 
     result = {
         "severity": severity,
@@ -454,19 +460,23 @@ def score_checkout(tx: Transaction, alert: bool = True):
                                           "result until it can be trusted",
                    "message": None}
     else:
-        icon = "🚨 FRAUD DETECTED" if fraud_result == "FRAUD" else "✅ TRANSACTION SAFE"
-        risk = f"{kaggle['risk_pct']}%" if kaggle["risk_pct"] is not None else "n/a"
+        risk = (f"{kaggle['risk_pct']}%  (model only - the verdict also uses "
+                "this account's baseline and velocity)"
+                if kaggle["risk_pct"] is not None else "n/a")
         matched = (f"${kaggle['matched_amount']:,.2f}"
                    + (" (a real fraud case)" if kaggle["matched_was_fraud"] else " (a real normal case)")
                    if kaggle["matched_amount"] is not None else "n/a")
+        typical = (f"${bf['account_mean']:,.2f}" if bf.get("account_mean")
+                   else "still learning")
         text = (
-            f"{icon}\n\n"
+            f"{headline}\n\n"
             f"Amount: ${amount:,.2f}\n"
             f"Account: {account_id}\n"
             f"Item/note: {data.get('item') or 'n/a'}\n"
             f"Status: {fraud_result} ({verdict})\n"
             f"Risk score: {risk}\n"
             f"Reason: {result['reason']}\n"
+            f"Typical for this account: {typical}\n"
             f"Compared against (credit.csv): {matched}\n"
             f"Time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}"
         )
