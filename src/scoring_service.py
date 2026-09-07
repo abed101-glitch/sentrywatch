@@ -386,6 +386,43 @@ class AlertConfig(BaseModel):
     chat_id: str = ""
 
 
+# Class 11
+@app.get("/telegram/link")
+def telegram_link():
+    """
+    Give the browser a one-time deep link. The visitor taps it, Telegram opens,
+    they press Start, and their chat id arrives here - nothing to look up.
+    """
+    who = alerts_mod.bot_username()
+    if not who.get("ok"):
+        return {"ok": False, "error": who.get("error")}
+    code = f"sw{random.randint(10**9, 10**10 - 1)}"
+    return {
+        "ok": True,
+        "code": code,
+        "bot": who["username"],
+        "url": f"https://t.me/{who['username']}?start={code}",
+    }
+
+
+@app.get("/telegram/status")
+def telegram_status(code: str):
+    r = alerts_mod.find_start(code)
+    if not r.get("ok"):
+        return {"connected": False, "error": r.get("error")}
+    if not r.get("found"):
+        return {"connected": False, "waiting": True}
+
+    alerts_mod.set_chat_id(r["chat_id"])
+    sent = alerts_mod.send_telegram(
+        f"*Connected.*\nHello {r['name']} - SentryWatch will send fraud alerts here.\n"
+        "Each one quotes what is normal for that account, and repeats inside the "
+        "same incident are rolled up."
+    )
+    return {"connected": True, "name": r["name"],
+            "greeted": bool(sent.get("ok")), **alerts_mod.alert_config()}
+
+
 @app.get("/alert-config")
 def alert_config_get():
     return alerts_mod.alert_config()

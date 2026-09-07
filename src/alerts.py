@@ -31,6 +31,65 @@ def active_chat_id() -> str:
     return RUNTIME["chat_id"] or TELEGRAM_CHAT_ID
 
 
+def bot_username() -> dict:
+    """Ask Telegram who this bot is, so the page can build a t.me link."""
+    if not TELEGRAM_BOT_TOKEN:
+        return {"ok": False, "error": "TELEGRAM_BOT_TOKEN is not set on the server"}
+    if RUNTIME.get("username"):
+        return {"ok": True, "username": RUNTIME["username"]}
+    try:
+        r = requests.get(
+            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getMe",
+            timeout=HTTP_TIMEOUT,
+        )
+        d = r.json()
+        if not d.get("ok"):
+            return {"ok": False, "error": d.get("description", "getMe failed")}
+        RUNTIME["username"] = d["result"]["username"]
+        return {"ok": True, "username": RUNTIME["username"]}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def find_start(code: str) -> dict:
+    """
+    Look for someone who pressed Start on the bot with our one-time code.
+
+    Telegram deep links send '/start <code>' as an ordinary message, so the
+    chat id arrives without the person ever having to look it up.
+    """
+    if not TELEGRAM_BOT_TOKEN:
+        return {"ok": False, "error": "TELEGRAM_BOT_TOKEN is not set on the server"}
+    try:
+        r = requests.get(
+            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates",
+            params={"timeout": 0, "allowed_updates": '["message"]'},
+            timeout=HTTP_TIMEOUT,
+        )
+        d = r.json()
+        if not d.get("ok"):
+            desc = d.get("description", "")
+            if "webhook" in desc.lower():
+                desc = ("a webhook is set on this bot, so polling is blocked - "
+                        "delete it or connect by chat id instead")
+            return {"ok": False, "error": desc or "getUpdates failed"}
+
+        for upd in reversed(d.get("result", [])):
+            msg = upd.get("message") or {}
+            text = (msg.get("text") or "").strip()
+            if text in (f"/start {code}", f"/start{code}"):
+                chat = msg.get("chat", {})
+                return {
+                    "ok": True,
+                    "found": True,
+                    "chat_id": str(chat.get("id")),
+                    "name": chat.get("first_name") or chat.get("title") or "there",
+                }
+        return {"ok": True, "found": False}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 def alert_config() -> dict:
     chat = active_chat_id()
     return {

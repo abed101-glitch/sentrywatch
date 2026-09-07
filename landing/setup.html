@@ -140,17 +140,27 @@
     <p class="hint">One message per incident. Repeats inside the same incident are rolled
       up, not re-sent.</p>
     <div class="body">
-      <label for="chat">Telegram chat ID</label>
-      <input id="chat" placeholder="e.g. 5384988170">
-      <button id="savechat">Save and send a test message</button>
+      <button id="connect">Connect Telegram</button>
       <div class="err" id="chaterr"></div>
       <div class="ok" id="chatok"></div>
+
+      <div class="note" id="waiting" style="display:none">
+        <b>Telegram should have opened.</b> Press <b>Start</b> in the chat and come back —
+        this page connects on its own. <span id="dots">Waiting…</span><br>
+        Didn't open? <a id="tglink" href="#" target="_blank" rel="noopener">Tap here</a>.
+      </div>
+
+      <details style="margin-top:14px">
+        <summary style="cursor:pointer;font-size:13.5px;color:var(--dim)">
+          Or enter a chat ID manually</summary>
+        <label for="chat" style="margin-top:12px">Telegram chat ID</label>
+        <input id="chat" placeholder="e.g. 5384988170">
+        <button id="savechat">Save and send a test message</button>
+      </details>
+
       <div class="note"><b>Why Telegram and not email.</b> Alerts go out, they don't come
         in — so nothing has to be hosted or exposed to receive them. The service makes one
-        outbound HTTPS request and the message arrives on your phone.<br><br>
-        <b>Don't know your chat ID?</b> Message <b>@userinfobot</b> on Telegram and it
-        replies with your numeric ID. Then message this project's bot once, so it is
-        allowed to write to you.</div>
+        outbound HTTPS request and the message arrives on your phone.</div>
     </div>
   </div>
 
@@ -185,6 +195,68 @@ function snippet(account, endpoint) {
 '<span class="k">await</span> takePayment(order);' +
 '</pre>';
 }
+
+let poll = null;
+
+function stopPolling(){ if (poll) { clearInterval(poll); poll = null; } }
+
+$('connect').onclick = async () => {
+  $('chaterr').style.display = $('chatok').style.display = 'none';
+  const b = $('connect'); b.disabled = true; b.textContent = 'Opening Telegram…';
+  try {
+    const r = await fetch('/telegram/link');
+    const d = await r.json();
+    if (!d.ok) {
+      $('chaterr').textContent = d.error && d.error.includes('TELEGRAM_BOT_TOKEN')
+        ? 'The server has no bot token configured yet.'
+        : ('Could not start: ' + d.error);
+      $('chaterr').style.display = 'block';
+      b.disabled = false; b.textContent = 'Connect Telegram';
+      return;
+    }
+
+    $('tglink').href = d.url;
+    $('waiting').style.display = 'block';
+    window.open(d.url, '_blank', 'noopener');
+    b.textContent = 'Waiting for you in Telegram…';
+
+    let tries = 0;
+    stopPolling();
+    poll = setInterval(async () => {
+      tries++;
+      $('dots').textContent = 'Waiting' + '.'.repeat(1 + tries % 3);
+      try {
+        const s = await fetch('/telegram/status?code=' + encodeURIComponent(d.code));
+        const st = await s.json();
+        if (st.connected) {
+          stopPolling();
+          $('waiting').style.display = 'none';
+          $('chatok').innerHTML = '<b>Connected.</b> Alerts will go to ' +
+            st.name + ' — check Telegram, a confirmation is already there.';
+          $('chatok').style.display = 'block';
+          $('s3').classList.add('done');
+          b.textContent = 'Connected'; b.disabled = true;
+        } else if (st.error) {
+          stopPolling();
+          $('chaterr').textContent = st.error;
+          $('chaterr').style.display = 'block';
+          $('waiting').style.display = 'none';
+          b.disabled = false; b.textContent = 'Try again';
+        } else if (tries > 60) {
+          stopPolling();
+          $('waiting').style.display = 'none';
+          $('chaterr').textContent = 'Timed out. Press Start in Telegram, then try again.';
+          $('chaterr').style.display = 'block';
+          b.disabled = false; b.textContent = 'Connect Telegram';
+        }
+      } catch (_) { /* keep waiting */ }
+    }, 2000);
+  } catch (e) {
+    $('chaterr').textContent = 'Could not reach the service.';
+    $('chaterr').style.display = 'block';
+    b.disabled = false; b.textContent = 'Connect Telegram';
+  }
+};
 
 $('savechat').onclick = async () => {
   const id = $('chat').value.trim();

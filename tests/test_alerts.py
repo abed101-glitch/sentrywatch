@@ -164,6 +164,16 @@ def test_unconfigured_credentials():
     check("alert_config reports it cannot deliver",
           alerts.alert_config()["can_deliver"] is False)
     alerts.set_chat_id(None)
+
+    # Class 11 - the deep-link connect flow must also fail loudly without a token
+    who = alerts.bot_username()
+    check("bot_username refuses without a token",
+          who["ok"] is False and "TELEGRAM_BOT_TOKEN" in who.get("error", ""),
+          who.get("error"))
+    fs = alerts.find_start("sw123")
+    check("find_start refuses without a token",
+          fs["ok"] is False and "TELEGRAM_BOT_TOKEN" in fs.get("error", ""),
+          fs.get("error"))
     print(f"        {r}")
 
 
