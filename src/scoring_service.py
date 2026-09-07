@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict
 
 from fastapi.responses import HTMLResponse
 
+import alerts as alerts_mod
 from alerts import dispatch_alert, format_alert, make_dedup_key, throttle
 import baseline_store
 from baseline_store import BaselineStore, combine_severity
@@ -378,6 +379,37 @@ def feed_start(interval: float = 1.0):
 def feed_stop():
     FEED["on"] = False
     return {"running": False, "scored": FEED["sent"]}
+
+
+# Class 11
+class AlertConfig(BaseModel):
+    chat_id: str = ""
+
+
+@app.get("/alert-config")
+def alert_config_get():
+    return alerts_mod.alert_config()
+
+
+@app.post("/alert-config")
+def alert_config_set(cfg: AlertConfig):
+    alerts_mod.set_chat_id(cfg.chat_id)
+    return alerts_mod.alert_config()
+
+
+@app.post("/alert-test")
+def alert_test():
+    cfg = alerts_mod.alert_config()
+    if not cfg["can_deliver"]:
+        return {"sent": False, **cfg,
+                "error": ("bot token missing on the server" if not cfg["token_configured"]
+                          else "no chat id set")}
+    r = alerts_mod.send_telegram(
+        "*SentryWatch is connected.*\n"
+        "This is a test message from the live service. "
+        "Real alerts will quote the account's own learned baseline."
+    )
+    return {"sent": bool(r.get("ok")), **cfg, "detail": r}
 
 
 @app.get("/feed/status")

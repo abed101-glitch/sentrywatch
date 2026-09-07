@@ -142,9 +142,15 @@
     <div class="body">
       <label for="chat">Telegram chat ID</label>
       <input id="chat" placeholder="e.g. 5384988170">
+      <button id="savechat">Save and send a test message</button>
+      <div class="err" id="chaterr"></div>
+      <div class="ok" id="chatok"></div>
       <div class="note"><b>Why Telegram and not email.</b> Alerts go out, they don't come
         in — so nothing has to be hosted or exposed to receive them. The service makes one
-        outbound HTTPS request and the message arrives on your phone.</div>
+        outbound HTTPS request and the message arrives on your phone.<br><br>
+        <b>Don't know your chat ID?</b> Message <b>@userinfobot</b> on Telegram and it
+        replies with your numeric ID. Then message this project's bot once, so it is
+        allowed to write to you.</div>
     </div>
   </div>
 
@@ -179,6 +185,39 @@ function snippet(account, endpoint) {
 '<span class="k">await</span> takePayment(order);' +
 '</pre>';
 }
+
+$('savechat').onclick = async () => {
+  const id = $('chat').value.trim();
+  $('chaterr').style.display = $('chatok').style.display = 'none';
+  if (!/^-?\d{5,}$/.test(id)) {
+    $('chaterr').textContent = 'A chat ID is all digits, e.g. 5384988170.';
+    $('chaterr').style.display = 'block';
+    return;
+  }
+  const b = $('savechat'); b.disabled = true; b.textContent = 'Sending…';
+  try {
+    await fetch('/alert-config', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ chat_id: id })
+    });
+    const r = await fetch('/alert-test', { method: 'POST' });
+    const d = await r.json();
+    if (d.sent) {
+      $('chatok').textContent = 'Sent. Check Telegram — alerts now go to ' + d.chat_id + '.';
+      $('chatok').style.display = 'block';
+      $('s3').classList.add('done');
+    } else {
+      $('chaterr').textContent = d.error === 'bot token missing on the server'
+        ? 'The server has no bot token set. Add TELEGRAM_BOT_TOKEN in Render, then redeploy.'
+        : ('Could not deliver: ' + (d.detail?.detail || d.error || 'unknown'));
+      $('chaterr').style.display = 'block';
+    }
+  } catch (e) {
+    $('chaterr').textContent = 'Could not reach the service.';
+    $('chaterr').style.display = 'block';
+  }
+  b.disabled = false; b.textContent = 'Save and send a test message';
+};
 
 $('go').onclick = async () => {
   $('err').style.display = 'none';

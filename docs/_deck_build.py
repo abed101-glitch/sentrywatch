@@ -20,7 +20,7 @@ BLACK  = C(0x00,0x00,0x00)
 
 H, B = "Cambria", "Calibri"
 URL  = "https://sentrywatch.onrender.com"
-REPO = "https://github.com/YOUR-USERNAME/YOUR-REPO"
+REPO = "https://github.com/abed101-glitch/sentrywatch"
 
 prs = Presentation()
 prs.slide_width, prs.slide_height = I(13.333), I(7.5)

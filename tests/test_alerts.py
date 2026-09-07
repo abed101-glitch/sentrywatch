@@ -150,8 +150,20 @@ def test_unconfigured_credentials():
     import importlib
     importlib.reload(alerts)
     r = alerts.send_telegram("x")
+    err = r.get("error", "")
     check("telegram reports not configured", r["ok"] is False)
-    check("error names the cause", "credentials" in r.get("error", ""))
+    check("error names WHICH credential is missing",
+          "TELEGRAM_BOT_TOKEN" in err or "chat id" in err, err)
+
+    # Class 11 - a chat id set at runtime must not rescue a missing token
+    alerts.set_chat_id("123456789")
+    r2 = alerts.send_telegram("x")
+    check("a runtime chat id cannot substitute for the token",
+          r2["ok"] is False and "TELEGRAM_BOT_TOKEN" in r2.get("error", ""),
+          r2.get("error"))
+    check("alert_config reports it cannot deliver",
+          alerts.alert_config()["can_deliver"] is False)
+    alerts.set_chat_id(None)
     print(f"        {r}")
 
 

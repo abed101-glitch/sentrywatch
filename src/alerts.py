@@ -17,6 +17,30 @@ import requests
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
+# Class 11 - the setup page can point alerts at a different chat at runtime.
+# The bot token is never settable from the browser; it only ever comes from the
+# environment, so a public page cannot hijack the bot.
+RUNTIME = {"chat_id": None}
+
+
+def set_chat_id(chat_id: str | None) -> None:
+    RUNTIME["chat_id"] = (chat_id or "").strip() or None
+
+
+def active_chat_id() -> str:
+    return RUNTIME["chat_id"] or TELEGRAM_CHAT_ID
+
+
+def alert_config() -> dict:
+    chat = active_chat_id()
+    return {
+        "token_configured": bool(TELEGRAM_BOT_TOKEN),
+        "chat_id_set": bool(chat),
+        "chat_id": (chat[:4] + "..." + chat[-3:]) if chat and len(chat) > 8 else chat,
+        "source": "setup page" if RUNTIME["chat_id"] else "environment",
+        "can_deliver": bool(TELEGRAM_BOT_TOKEN and chat),
+    }
+
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
 SMTP_USER = os.getenv("SMTP_USER", "")
@@ -225,14 +249,19 @@ def format_alert(result: dict, tx: dict, suppressed: int = 0) -> dict:
     }
 
 
-def send_telegram(text: str) -> dict:
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        return {"channel": "telegram", "ok": False, "error": "credentials not configured"}
+def send_telegram(text: str, chat_id: str | None = None) -> dict:
+    chat_id = chat_id or active_chat_id()
+    if not TELEGRAM_BOT_TOKEN:
+        return {"channel": "telegram", "ok": False,
+                "error": "TELEGRAM_BOT_TOKEN is not set on the server"}
+    if not chat_id:
+        return {"channel": "telegram", "ok": False,
+                "error": "no chat id - set one on the setup page"}
     try:
         r = requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
             json={
-                "chat_id": TELEGRAM_CHAT_ID,
+                "chat_id": chat_id,
                 "text": text,
                 "parse_mode": "Markdown",
                 "disable_web_page_preview": True,

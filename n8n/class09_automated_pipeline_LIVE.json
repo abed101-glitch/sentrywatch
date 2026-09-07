@@ -1,0 +1,344 @@
+{
+  "name": "Class 9 - Automated Pipeline (LIVE - sentrywatch.onrender.com)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "seconds",
+              "secondsInterval": 10
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Every 10 Seconds",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -260,
+        380
+      ],
+      "notes": "Fires every 10 seconds against the HOSTED service. Render's free tier sleeps after 15 min idle, so the first request after a pause can take ~50s - the timeout is 60s to absorb that."
+    },
+    {
+      "parameters": {
+        "url": "https://sentrywatch.onrender.com/next-transaction",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "fetch-transaction",
+      "name": "Fetch Real Transaction",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -40,
+        380
+      ],
+      "notes": "Pulls the next REAL row from the Kaggle Credit Card Fraud dataset (284,807 transactions, 492 labelled frauds). Amount, V1-V28 and the true fraud label are the original data - nothing is generated. Account IDs are assigned round-robin because the dataset has no account column."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://sentrywatch.onrender.com/score-and-alert?deliver=false",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "score",
+      "name": "Score + Decide",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        180,
+        380
+      ],
+      "notes": "deliver=false: the service scores against the per-account baseline, runs the throttle and logs the row - but does NOT send. It returns alert.would_send and alert.message so n8n delivers. The true fraud label rides along and lands in the dashboard, so recall and precision are computed live."
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c-high",
+                    "leftValue": "={{ $json.severity }}",
+                    "rightValue": "high",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "High"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c-medium",
+                    "leftValue": "={{ $json.severity }}",
+                    "rightValue": "medium",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Medium"
+            }
+          ]
+        },
+        "fallbackOutput": "extra",
+        "options": {}
+      },
+      "id": "route-severity",
+      "name": "Route by Severity",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        420,
+        380
+      ],
+      "notes": "Three outputs. The fallback carries normal events to the log so there is a denominator for the Class 10 evaluation."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "should-send",
+              "leftValue": "={{ $json.alert.would_send }}",
+              "rightValue": "={{ true }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "should-alert",
+      "name": "Throttle: Send?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        700,
+        260
+      ],
+      "notes": "The service already decided. true = first alert for this incident. false = inside the cooldown, or the hourly cap was hit."
+    },
+    {
+      "parameters": {
+        "chatId": "5384988170",
+        "text": "={{ $json.alert.message }}",
+        "additionalFields": {
+          "parse_mode": "Markdown",
+          "disable_web_page_preview": true
+        }
+      },
+      "id": "telegram-send",
+      "name": "Send Telegram Alert",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        960,
+        160
+      ],
+      "notes": "Needs a Telegram API credential - create one in n8n with the BotFather token. The message text is built by the service so it can quote the account's learned baseline.",
+      "credentials": {
+        "telegramApi": {
+          "id": "REPLACE_ME",
+          "name": "Fraud Alert Bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "x1",
+              "name": "outcome",
+              "type": "string",
+              "value": "suppressed"
+            },
+            {
+              "id": "x2",
+              "name": "account",
+              "type": "string",
+              "value": "={{ $json.account_id }}"
+            },
+            {
+              "id": "x3",
+              "name": "why",
+              "type": "string",
+              "value": "={{ $json.alert.suppression_reason }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "suppressed",
+      "name": "Suppressed (No Buzz)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        960,
+        360
+      ],
+      "notes": "Still logged by the service with its reason. Silent suppression that cannot be audited would corrupt the Class 10 numbers."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "n1",
+              "name": "outcome",
+              "type": "string",
+              "value": "normal - logged, nobody notified"
+            },
+            {
+              "id": "n2",
+              "name": "account",
+              "type": "string",
+              "value": "={{ $json.account_id }}"
+            },
+            {
+              "id": "n3",
+              "name": "amount",
+              "type": "number",
+              "value": "={{ $json.Amount }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "normal",
+      "name": "Normal (Log Only)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        700,
+        560
+      ]
+    }
+  ],
+  "connections": {
+    "Every 10 Seconds": {
+      "main": [
+        [
+          {
+            "node": "Fetch Real Transaction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score + Decide": {
+      "main": [
+        [
+          {
+            "node": "Route by Severity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Severity": {
+      "main": [
+        [
+          {
+            "node": "Throttle: Send?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Throttle: Send?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normal (Log Only)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Throttle: Send?": {
+      "main": [
+        [
+          {
+            "node": "Send Telegram Alert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Suppressed (No Buzz)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Real Transaction": {
+      "main": [
+        [
+          {
+            "node": "Score + Decide",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "class9-live"
+  },
+  "tags": []
+}
