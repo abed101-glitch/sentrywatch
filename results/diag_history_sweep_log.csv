@@ -1,0 +1,6 @@
+accounts,history_per_account,scored_warm,global_flagged,account_flagged,ratio_acct_over_global,global_caught,account_caught
+500,50,24996,482,60,0.12,0,0
+250,100,25000,482,42,0.09,0,0
+100,250,25000,482,37,0.08,0,0
+50,500,25000,482,41,0.09,0,0
+25,1000,25000,482,40,0.08,0,0

@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fraud Detection — Live Dashboard</title>
+<style>
+  :root {
+    --bg:#0f1115; --panel:#171a21; --line:#252a34; --text:#e6e9ef;
+    --dim:#8b93a7; --high:#e5484d; --med:#e6a020; --norm:#3fa860; --acc:#4c8dff;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif; }
+  header { padding:18px 24px; border-bottom:1px solid var(--line);
+           display:flex; align-items:baseline; gap:16px; flex-wrap:wrap; }
+  .brand { font-size:16.5px; font-weight:700; letter-spacing:-.02em;
+           color:var(--text); text-decoration:none; }
+  .brand span { color:#7aa8f5; }
+  .live a { color:var(--dim); text-decoration:none; font-size:13px; margin-right:16px; }
+  .live a:hover { color:var(--text); }
+  .feedbtn { background:var(--acc); color:#fff; border:0; border-radius:7px;
+             padding:7px 14px; font-size:12.5px; font-weight:600; cursor:pointer;
+             font-family:inherit; margin-right:14px; }
+  .feedbtn:hover { filter:brightness(1.1); }
+  .feedbtn.on { background:var(--high); }
+  .sub { color:var(--dim); font-size:13px; }
+  .live { margin-left:auto; display:flex; align-items:center; gap:7px;
+          color:var(--dim); font-size:12px; }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--norm);
+         animation:pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
+
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+           gap:12px; padding:20px 24px; }
+  .card { background:var(--panel); border:1px solid var(--line);
+          border-radius:10px; padding:14px 16px; }
+  .card .label { color:var(--dim); font-size:11px; text-transform:uppercase;
+                 letter-spacing:.06em; }
+  .card .value { font-size:28px; font-weight:600; margin-top:6px;
+                 font-variant-numeric:tabular-nums; }
+  .card .note { color:var(--dim); font-size:11px; margin-top:2px; }
+  .card.hl { border-color:var(--acc); }
+  .card.gt { border-color:#7c5cff; }
+  .truth   { font-weight:700; color:var(--high); }
+
+  .wrap { padding:0 24px 40px; }
+  table { width:100%; border-collapse:collapse; font-size:13px;
+          font-variant-numeric:tabular-nums; }
+  th { text-align:left; color:var(--dim); font-weight:500; font-size:11px;
+       text-transform:uppercase; letter-spacing:.05em;
+       padding:10px 12px; border-bottom:1px solid var(--line); }
+  td { padding:9px 12px; border-bottom:1px solid #1c2029; }
+  tr.new td { animation:flash 1.2s ease-out; }
+  @keyframes flash { from { background:#1e2a3d; } to { background:transparent; } }
+  .pill { display:inline-block; padding:2px 9px; border-radius:99px;
+          font-size:11px; font-weight:600; }
+  .high   { background:rgba(229,72,77,.15);  color:var(--high); }
+  .medium { background:rgba(230,160,32,.15); color:var(--med); }
+  .normal { background:rgba(63,168,96,.13);  color:var(--norm); }
+  .sent   { color:var(--norm); }
+  .supp   { color:var(--dim); }
+  .reason { color:var(--dim); max-width:380px; overflow:hidden;
+            text-overflow:ellipsis; white-space:nowrap; }
+  .empty { padding:50px; text-align:center; color:var(--dim); }
+  code { background:#0b0d11; padding:1px 6px; border-radius:4px; font-size:12px; }
+</style>
+</head>
+<body>
+
+<header>
+  <a class="brand" href="/">Sentry<span>Watch</span></a>
+  <span class="sub">operations &middot; live event stream</span>
+  <span class="live">
+    <a href="/">Home</a><a href="/setup">Set up</a><a href="/checkout">Checkout</a>
+    <button id="feed" class="feedbtn">Start live feed</button>
+    <span class="dot"></span><span id="tick">connecting</span>
+  </span>
+</header>
+
+<div class="cards">
+  <div class="card"><div class="label">Events seen</div>
+    <div class="value" id="total">0</div>
+    <div class="note" id="accounts">0 accounts</div></div>
+  <div class="card"><div class="label">High</div>
+    <div class="value" style="color:var(--high)" id="high">0</div></div>
+  <div class="card"><div class="label">Medium</div>
+    <div class="value" style="color:var(--med)" id="medium">0</div></div>
+  <div class="card"><div class="label">Normal</div>
+    <div class="value" style="color:var(--norm)" id="normal">0</div></div>
+  <div class="card hl"><div class="label">Alerts sent</div>
+    <div class="value" id="sent">0</div>
+    <div class="note" id="supp">0 suppressed</div></div>
+  <div class="card hl"><div class="label">Suppression rate</div>
+    <div class="value" id="rate">0%</div>
+    <div class="note">of alertable events</div></div>
+  <div class="card gt"><div class="label">Real frauds seen</div>
+    <div class="value" style="color:var(--high)" id="actual">0</div>
+    <div class="note" id="caught">0 caught</div></div>
+  <div class="card gt"><div class="label">Recall</div>
+    <div class="value" id="recall">—</div>
+    <div class="note">of real fraud caught</div></div>
+  <div class="card gt"><div class="label">Precision</div>
+    <div class="value" id="prec">—</div>
+    <div class="note" id="fa">0 false alarms</div></div>
+</div>
+
+<div class="wrap">
+  <table>
+    <thead><tr>
+      <th>Time</th><th>Account</th><th>Amount</th><th>Typical</th>
+      <th>Severity</th><th>z</th><th>Basis</th><th>1h</th>
+      <th>Alert</th><th>Real?</th><th>Reason</th>
+    </tr></thead>
+    <tbody id="rows"><tr><td colspan="11" class="empty">
+      Waiting for events. Activate the n8n workflow to start the feed.
+    </td></tr></tbody>
+  </table>
+  <p style="color:var(--dim);font-size:12px;margin-top:18px;">
+    Replaying real transactions from the Kaggle Credit Card Fraud dataset
+    (284,807 records, 492 labelled frauds). Amounts, V1–V28 features and fraud
+    labels are the original data. Account IDs are assigned round-robin because
+    the dataset has no account column, and frauds are over-sampled so the demo
+    does not run for 96 minutes between them.
+  </p>
+</div>
+
+<script>
+let seen = new Set();
+let first = true;
+
+function fmt(n, d = 2) {
+  if (n === null || n === undefined) return '—';
+  return Number(n).toLocaleString(undefined,
+    { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+
+async function poll() {
+  try {
+    const r = await fetch('/events?limit=40');
+    const d = await r.json();
+    const s = d.summary;
+
+    total.textContent  = s.total;
+    high.textContent   = s.high;
+    medium.textContent = s.medium;
+    normal.textContent = s.normal;
+    sent.textContent   = s.sent;
+    supp.textContent   = s.suppressed + ' suppressed';
+    rate.textContent   = s.suppression_rate + '%';
+    accounts.textContent = s.accounts + ' accounts';
+    if (s.has_labels) {
+      actual.textContent = s.actual_fraud;
+      caught.textContent = s.caught + ' caught, ' + s.missed + ' missed';
+      recall.textContent = s.recall + '%';
+      prec.textContent   = s.precision + '%';
+      fa.textContent     = s.false_alarm + ' false alarms';
+    } else {
+      recall.textContent = prec.textContent = 'n/a';
+      caught.textContent = 'no labels in stream';
+    }
+    tick.textContent = 'live · ' + new Date().toLocaleTimeString();
+
+    if (!d.events.length) return;
+
+    rows.innerHTML = d.events.map(e => {
+      const isNew = !first && !seen.has(e.id);
+      seen.add(e.id);
+      const alert = e.alert_sent ? '<span class="sent">sent</span>'
+                  : e.suppressed ? '<span class="supp">suppressed</span>'
+                  : '<span class="supp">—</span>';
+      const z = e.z_basis === 'account' ? e.account_z : e.global_z;
+      return `<tr class="${isNew ? 'new' : ''}">
+        <td>${new Date(e.ts * 1000).toLocaleTimeString()}</td>
+        <td>${e.account_id ?? '—'}</td>
+        <td>${fmt(e.amount)}</td>
+        <td>${e.account_warm ? fmt(e.account_mean) : '<span class="supp">learning</span>'}</td>
+        <td><span class="pill ${e.severity}">${e.severity}</span></td>
+        <td>${fmt(z, 2)}</td>
+        <td>${e.z_basis ?? '—'}</td>
+        <td>${e.txn_count_1h ?? 0}</td>
+        <td>${alert}</td>
+        <td>${e.true_fraud === 1 ? '<span class="truth">FRAUD</span>'
+             : e.true_fraud === 0 ? '<span class="supp">legit</span>' : '—'}</td>
+        <td class="reason" title="${(e.reason ?? '').replace(/"/g, '&quot;')}">${e.reason ?? ''}</td>
+      </tr>`;
+    }).join('');
+    first = false;
+  } catch (err) {
+    tick.textContent = 'service unreachable';
+  }
+}
+
+let feeding = false;
+async function toggleFeed() {
+  const b = document.getElementById('feed');
+  b.disabled = true;
+  try {
+    const r = await fetch(feeding ? '/feed/stop' : '/feed/start?interval=1', {method:'POST'});
+    const d = await r.json();
+    feeding = d.running;
+    b.textContent = feeding ? 'Stop live feed' : 'Start live feed';
+    b.classList.toggle('on', feeding);
+    if (feeding) poll();
+  } catch (_) {
+    b.textContent = 'Service unreachable';
+  }
+  b.disabled = false;
+}
+document.getElementById('feed').onclick = toggleFeed;
+
+fetch('/feed/status').then(r => r.json()).then(d => {
+  feeding = d.running;
+  const b = document.getElementById('feed');
+  b.textContent = feeding ? 'Stop live feed' : 'Start live feed';
+  b.classList.toggle('on', feeding);
+}).catch(() => {});
+
+poll();
+setInterval(poll, 2000);
+</script>
+</body>
+</html>

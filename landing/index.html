@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SentryWatch — catch fraud before it costs you money</title>
+<style>
+  :root {
+    --ink:#0f1115; --text:#1a1f2b; --dim:#646d80; --line:#e4e7ee;
+    --bg:#fff; --soft:#f6f7fa;
+    --acc:#2f6fe4; --acc-d:#2559bd; --acc-soft:#eaf1fd;
+    --ok:#1f7346; --ok-soft:#e9f5ed;
+    --warn:#8a6011; --warn-soft:#fdf4e3;
+    --bad:#b32b30; --bad-soft:#fdeeee;
+  }
+  * { box-sizing:border-box; }
+  html { scroll-behavior:smooth; }
+  body { margin:0; background:var(--bg); color:var(--text);
+         font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+         -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:1080px; margin:0 auto; padding:0 28px; }
+
+  nav { background:var(--ink); }
+  .navin { display:flex; align-items:center; height:58px; gap:28px; }
+  .brand { color:#fff; font-weight:700; font-size:16.5px; letter-spacing:-.02em;
+           text-decoration:none; }
+  .brand span { color:#7aa8f5; }
+  .navlinks { margin-left:auto; display:flex; gap:24px; }
+  .navlinks a { color:#a8b0c0; text-decoration:none; font-size:14px; }
+  .navlinks a:hover { color:#fff; }
+
+  .hero { display:grid; grid-template-columns:1.15fr .85fr; gap:56px;
+          align-items:center; padding:76px 0 68px; }
+  @media (max-width:900px){ .hero { grid-template-columns:1fr; gap:36px; padding:48px 0; } }
+  .eyebrow { display:inline-block; background:var(--acc-soft); color:var(--acc-d);
+             font-size:12.5px; font-weight:600; padding:5px 12px; border-radius:99px;
+             letter-spacing:.01em; margin-bottom:20px; }
+  h1 { font-size:47px; line-height:1.08; letter-spacing:-.033em; margin:0 0 20px;
+       color:var(--ink); font-weight:700; }
+  @media (max-width:900px){ h1 { font-size:36px; } }
+  .lede { font-size:18.5px; color:var(--dim); margin:0 0 30px; max-width:520px; }
+  .btns { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+  .btn { display:inline-block; background:var(--acc); color:#fff; text-decoration:none;
+         padding:13px 26px; border-radius:9px; font-weight:600; font-size:15.5px;
+         border:0; cursor:pointer; font-family:inherit; }
+  .btn:hover { background:var(--acc-d); }
+  .btn.sec { background:#fff; color:var(--text); border:1px solid var(--line); }
+  .btn.sec:hover { background:var(--soft); }
+
+  .peek { background:var(--soft); border:1px solid var(--line); border-radius:14px;
+          padding:20px; }
+  .peek .row { display:flex; justify-content:space-between; align-items:center;
+               padding:11px 0; border-bottom:1px solid var(--line); font-size:14px; }
+  .peek .row:last-child { border:0; }
+  .peek .lbl { color:var(--dim); }
+  .peek .val { font-weight:600; font-variant-numeric:tabular-nums; }
+  .chip { font-size:11.5px; font-weight:700; padding:3px 10px; border-radius:99px;
+          letter-spacing:.02em; }
+  .c-ok { background:var(--ok-soft); color:var(--ok); }
+  .c-wn { background:var(--warn-soft); color:var(--warn); }
+  .peek .cap { font-size:12px; color:var(--dim); margin:14px 0 0; line-height:1.5; }
+
+  .band { background:var(--ink); color:#fff; }
+  .bandin { display:grid; grid-template-columns:repeat(4,1fr); gap:20px; padding:38px 0; }
+  @media (max-width:760px){ .bandin { grid-template-columns:repeat(2,1fr); gap:26px; } }
+  .bandin .v { font-size:31px; font-weight:700; letter-spacing:-.02em; }
+  .bandin .l { font-size:12.5px; color:#98a1b3; margin-top:3px; }
+
+  section { padding:66px 0; }
+  section.alt { background:var(--soft); border-top:1px solid var(--line);
+                border-bottom:1px solid var(--line); }
+  h2 { font-size:29px; letter-spacing:-.025em; margin:0 0 10px; color:var(--ink);
+       font-weight:700; }
+  .sub { color:var(--dim); margin:0 0 38px; max-width:600px; font-size:16.5px; }
+
+  .three { display:grid; grid-template-columns:repeat(3,1fr); gap:24px; }
+  @media (max-width:820px){ .three { grid-template-columns:1fr; } }
+  .card { background:#fff; border:1px solid var(--line); border-radius:13px; padding:26px; }
+  section.alt .card { background:#fff; }
+  .num { display:inline-flex; width:30px; height:30px; border-radius:9px;
+         background:var(--acc-soft); color:var(--acc-d); font-size:14px; font-weight:700;
+         align-items:center; justify-content:center; margin-bottom:15px; }
+  .card h3 { font-size:17px; margin:0 0 8px; color:var(--ink); }
+  .card p { color:var(--dim); font-size:14.5px; margin:0; }
+
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
+  @media (max-width:820px){ .two { grid-template-columns:1fr; } }
+  .panel { border-radius:13px; padding:26px; }
+  .panel h3 { font-size:16px; margin:0 0 14px; }
+  .panel ul { margin:0; padding-left:20px; }
+  .panel li { margin-bottom:9px; font-size:14.5px; }
+  .p-ok { background:var(--ok-soft); } .p-ok h3 { color:var(--ok); }
+  .p-no { background:var(--bad-soft); } .p-no h3 { color:var(--bad); }
+
+  form { display:grid; gap:15px; max-width:470px; }
+  label { font-size:13.5px; font-weight:600; display:block; margin-bottom:5px; }
+  input, select { width:100%; padding:11px 13px; border:1px solid var(--line);
+                  border-radius:9px; font-size:15px; font-family:inherit; background:#fff; }
+  input:focus, select:focus { outline:2px solid #cfe0fb; border-color:var(--acc); }
+  .msg { display:none; padding:11px 14px; border-radius:9px; font-size:14px; }
+  .msg.ok { background:var(--ok-soft); color:var(--ok); }
+  .msg.err { background:var(--bad-soft); color:var(--bad); }
+  .orline { color:var(--dim); font-size:14.5px; margin:18px 0 0; }
+  .orline a { color:var(--acc); font-weight:600; text-decoration:none; }
+
+  footer { background:var(--ink); color:#98a1b3; font-size:13.5px; padding:34px 0; }
+  footer a { color:#7aa8f5; text-decoration:none; }
+</style>
+</head>
+<body>
+
+<nav><div class="wrap navin">
+  <a class="brand" href="/">Sentry<span>Watch</span></a>
+  <div class="navlinks">
+    <a href="#how">How it works</a>
+    <a href="/setup">Set up</a>
+    <a href="/checkout">Live demo</a>
+    <a href="/dashboard">Dashboard</a>
+  </div>
+</div></nav>
+
+<div class="wrap">
+  <div class="hero">
+    <div>
+      <span class="eyebrow">Real-time transaction scoring</span>
+      <h1>Catch fraud before<br>it costs you money.</h1>
+      <p class="lede">Every order is scored against that customer's own spending history —
+        not a global average — and you get an answer before the payment clears.</p>
+      <div class="btns">
+        <a class="btn" href="/setup">Set it up — about a minute</a>
+        <a class="btn sec" href="/checkout">See a live decision</a>
+      </div>
+    </div>
+
+    <div class="peek">
+      <div class="row"><span class="lbl">Order</span><span class="val">9,800.00</span></div>
+      <div class="row"><span class="lbl">Typical for this account</span><span class="val">44.18</span></div>
+      <div class="row"><span class="lbl">Z-score</span><span class="val">53.24</span></div>
+      <div class="row"><span class="lbl">Verdict</span><span class="chip c-wn">REVIEW</span></div>
+      <p class="cap">The same 9,800 charge is routine for a wholesaler and alarming for
+        this account. That difference is the whole product.</p>
+    </div>
+  </div>
+</div>
+
+<div class="band"><div class="wrap bandin">
+  <div><div class="v">284,807</div><div class="l">transactions evaluated</div></div>
+  <div><div class="v">34.1%</div><div class="l">of real fraud caught</div></div>
+  <div><div class="v">4</div><div class="l">false alarms per 3,000 orders</div></div>
+  <div><div class="v">0.008 ms</div><div class="l">added to checkout</div></div>
+</div></div>
+
+<section id="how" class="alt"><div class="wrap">
+  <h2>How it works</h2>
+  <p class="sub">One HTTP call from your checkout. No dashboard to babysit, no rules to
+    write, nothing to host.</p>
+  <div class="three">
+    <div class="card"><div class="num">1</div>
+      <h3>It learns each customer</h3>
+      <p>A running mean and variance per account, updated on every order. A customer who
+        always spends 40 is judged against 40, not against everyone.</p></div>
+    <div class="card"><div class="num">2</div>
+      <h3>It decides in milliseconds</h3>
+      <p>Unusual amount, unusual speed, or the model disagreeing. You get back
+        approve, review, or decline — with the reason attached.</p></div>
+    <div class="card"><div class="num">3</div>
+      <h3>It tells you once</h3>
+      <p>One message per incident, straight to Telegram. Repeats inside the same
+        incident are rolled up, not re-sent at three in the morning.</p></div>
+  </div>
+</div></section>
+
+<section><div class="wrap">
+  <h2>What it does and doesn't do</h2>
+  <p class="sub">Measured on 3,000 real transactions containing 88 real frauds.</p>
+  <div class="two">
+    <div class="panel p-ok"><h3>What it's good at</h3><ul>
+      <li>Surfacing the most anomalous orders for review</li>
+      <li>Spotting card testing — bursts of tiny charges that look innocent one at a time</li>
+      <li>Judging an amount against the right yardstick</li>
+      <li>Not alerting twice for the same incident</li>
+    </ul></div>
+    <div class="panel p-no"><h3>What it isn't</h3><ul>
+      <li>It catches about a third of fraud. Most still gets through.</li>
+      <li>It's triage, not prevention — it prioritises what a human should look at</li>
+      <li>It needs about 30 orders per customer before its judgement is worth much</li>
+      <li>Every number above is reproducible, and published rather than rounded up</li>
+    </ul></div>
+  </div>
+</div></section>
+
+<section class="alt" id="demo"><div class="wrap">
+  <h2>Get a free risk scan</h2>
+  <p class="sub">Tell us where to send it. We'll run your sample order data through the
+    detector and email you what it found.</p>
+  <form id="lead">
+    <div><label for="name">Your name</label><input id="name" name="name" required></div>
+    <div><label for="email">Email</label><input id="email" name="email" type="email" required></div>
+    <div><label for="business">Business type</label>
+      <select id="business" name="business_type">
+        <option>Online store</option><option>Marketplace</option>
+        <option>Fintech app</option><option>Other</option>
+      </select></div>
+    <div><label for="volume">Roughly how many orders a month?</label>
+      <select id="volume" name="monthly_orders">
+        <option>Under 500</option><option>500 – 5,000</option>
+        <option>5,000 – 50,000</option><option>More than 50,000</option>
+      </select></div>
+    <button type="submit" class="btn">Send me the scan</button>
+    <div class="msg ok"  id="ok">Thanks — that's logged. We'll be in touch shortly.</div>
+    <div class="msg err" id="err">Couldn't reach the server. Is the n8n workflow active?</div>
+  </form>
+  <p class="orline">Would rather not wait? <a href="/setup">Set it up yourself</a> —
+    four steps, about a minute.</p>
+</div></section>
+
+<footer><div class="wrap">
+  CSE 299 project &middot; Abed Gazi (2132538642) &middot;
+  <a href="/checkout">Live demo</a> &middot; <a href="/dashboard">Dashboard</a><br>
+  Demonstration site. Form submissions post to a local n8n webhook and are not sent anywhere.
+</div></footer>
+
+<script>
+const WEBHOOK = 'http://localhost:5678/webhook/lead';
+document.getElementById('lead').addEventListener('submit', async e => {
+  e.preventDefault();
+  const ok = document.getElementById('ok'), err = document.getElementById('err');
+  ok.style.display = err.style.display = 'none';
+  const data = Object.fromEntries(new FormData(e.target).entries());
+  try {
+    const r = await fetch(WEBHOOK, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(data)
+    });
+    if (!r.ok) throw new Error(r.status);
+    ok.style.display = 'block';
+    e.target.reset();
+  } catch (_) {
+    err.style.display = 'block';
+  }
+});
+</script>
+</body>
+</html>

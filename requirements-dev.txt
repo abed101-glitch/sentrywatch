@@ -1,0 +1,7 @@
+-r requirements.txt
+
+# Notebooks and analysis only — not needed on the server.
+matplotlib>=3.7
+seaborn>=0.12
+notebook>=7.0
+python-docx>=1.1

@@ -1,0 +1,76 @@
+{
+  "name": "Class 9 - Landing Page Lead Capture",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "lead-webhook",
+      "name": "Lead Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-140, 300],
+      "webhookId": "class9-lead-capture",
+      "notes": "The landing page form posts here. Path is /webhook/lead once the workflow is Active."
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={{ JSON.stringify($json.body || $json) }}",
+        "options": {}
+      },
+      "id": "extract-lead",
+      "name": "Extract Lead",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [80, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.telegram.org/bot{{ $env.TELEGRAM_BOT_TOKEN }}/sendMessage",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $env.TELEGRAM_CHAT_ID, text: '[LEAD] ' + $json.name + '\\n' + $json.email + '\\n' + $json.business_type + ' - ' + $json.monthly_orders }) }}",
+        "options": { "timeout": 10000 }
+      },
+      "id": "notify-lead",
+      "name": "Notify Me",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [320, 300],
+      "notes": "Reuses the same Telegram bot as the fraud alerts. The landing page becomes part of the automation already built, exactly as the proposal describes."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true }) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              { "name": "Access-Control-Allow-Origin", "value": "*" }
+            ]
+          }
+        }
+      },
+      "id": "respond",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [560, 300],
+      "notes": "CORS header is required because the page is opened from a file:// or localhost origin rather than served by n8n."
+    }
+  ],
+  "connections": {
+    "Lead Webhook": { "main": [[{ "node": "Extract Lead", "type": "main", "index": 0 }]] },
+    "Extract Lead": { "main": [[{ "node": "Notify Me", "type": "main", "index": 0 }]] },
+    "Notify Me": { "main": [[{ "node": "Respond OK", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "pinData": {},
+  "meta": { "instanceId": "class9lead" },
+  "tags": []
+}

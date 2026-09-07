@@ -1,0 +1,223 @@
+{
+  "name": "Class 8 - Score, Route and Alert",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "transaction",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-ingest",
+      "name": "Transaction Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-160, 300],
+      "webhookId": "class8-transaction-ingest"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={{ JSON.stringify($json.body || $json) }}",
+        "options": {}
+      },
+      "id": "extract-transaction",
+      "name": "Extract Transaction",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [60, 300],
+      "notes": "The Webhook node nests the POST body under $json.body. Flatten it so Amount and account_id sit at the top level."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/score",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": { "timeout": 10000 }
+      },
+      "id": "score-transaction",
+      "name": "Score Transaction",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [280, 300],
+      "notes": "Returns severity plus the Class 7 per-account context: account_z, account_mean, account_warm, txn_count_1h, alert_body."
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "typeValidation": "loose", "version": 2 },
+                "conditions": [
+                  {
+                    "id": "cond-high",
+                    "leftValue": "={{ $json.severity }}",
+                    "rightValue": "high",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "High"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "typeValidation": "loose", "version": 2 },
+                "conditions": [
+                  {
+                    "id": "cond-medium",
+                    "leftValue": "={{ $json.severity }}",
+                    "rightValue": "medium",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Medium"
+            }
+          ]
+        },
+        "fallbackOutput": "extra",
+        "options": {}
+      },
+      "id": "route-severity",
+      "name": "Route by Severity",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [520, 300],
+      "notes": "High -> throttled alert. Medium -> throttled alert. Normal -> log only, no alert."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/alert",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": { "timeout": 15000 }
+      },
+      "id": "alert-high",
+      "name": "Alert (High)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [760, 140],
+      "notes": "The service applies the per-incident cooldown and the global hourly cap, then sends to Telegram. Returns {sent, suppressed, suppression_reason, dedup_key}."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:8000/alert",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": { "timeout": 15000 }
+      },
+      "id": "alert-medium",
+      "name": "Alert (Medium)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [760, 320]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "n1", "name": "sent", "value": false, "type": "boolean" },
+            { "id": "n2", "name": "suppressed", "value": false, "type": "boolean" },
+            {
+              "id": "n3",
+              "name": "suppression_reason",
+              "value": "severity normal - logged only, no alert",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "mark-normal",
+      "name": "Mark Normal (No Alert)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [760, 520],
+      "notes": "Normal events still reach the sheet. Without them there is no denominator for the Class 10 precision calculation."
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_WITH_YOUR_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": { "__rl": true, "value": "AlertLog", "mode": "name" },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $now.toISO() }}",
+            "severity": "={{ $('Score Transaction').item.json.severity }}",
+            "amount": "={{ $('Extract Transaction').item.json.Amount }}",
+            "account_id": "={{ $('Score Transaction').item.json.account_id }}",
+            "account_warm": "={{ $('Score Transaction').item.json.account_warm }}",
+            "account_n": "={{ $('Score Transaction').item.json.account_n }}",
+            "account_typical": "={{ $('Score Transaction').item.json.account_mean }}",
+            "account_z": "={{ $('Score Transaction').item.json.account_z }}",
+            "global_z": "={{ $('Score Transaction').item.json.global_z }}",
+            "z_basis": "={{ $('Score Transaction').item.json.z_basis }}",
+            "txn_count_1h": "={{ $('Score Transaction').item.json.txn_count_1h }}",
+            "ml_flagged": "={{ $('Score Transaction').item.json.ml_flagged }}",
+            "ml_score": "={{ $('Score Transaction').item.json.ml_score }}",
+            "reason": "={{ $('Score Transaction').item.json.reason }}",
+            "alert_sent": "={{ $json.sent || false }}",
+            "suppressed": "={{ $json.suppressed || false }}",
+            "suppression_reason": "={{ $json.suppression_reason || '' }}",
+            "dedup_key": "={{ $json.dedup_key || '' }}"
+          },
+          "matchingColumns": []
+        },
+        "options": {}
+      },
+      "id": "log-sheet",
+      "name": "Log to Dashboard Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1040, 320],
+      "notes": "EVERY event lands here - alerted, suppressed and normal. Feeds the Class 9 dashboard and the Class 10 evaluation. The suppression columns are what let you measure alert volume honestly."
+    }
+  ],
+  "connections": {
+    "Transaction Webhook": {
+      "main": [[{ "node": "Extract Transaction", "type": "main", "index": 0 }]]
+    },
+    "Extract Transaction": {
+      "main": [[{ "node": "Score Transaction", "type": "main", "index": 0 }]]
+    },
+    "Score Transaction": {
+      "main": [[{ "node": "Route by Severity", "type": "main", "index": 0 }]]
+    },
+    "Route by Severity": {
+      "main": [
+        [{ "node": "Alert (High)", "type": "main", "index": 0 }],
+        [{ "node": "Alert (Medium)", "type": "main", "index": 0 }],
+        [{ "node": "Mark Normal (No Alert)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Alert (High)": {
+      "main": [[{ "node": "Log to Dashboard Sheet", "type": "main", "index": 0 }]]
+    },
+    "Alert (Medium)": {
+      "main": [[{ "node": "Log to Dashboard Sheet", "type": "main", "index": 0 }]]
+    },
+    "Mark Normal (No Alert)": {
+      "main": [[{ "node": "Log to Dashboard Sheet", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "pinData": {},
+  "meta": { "instanceId": "class8" },
+  "tags": []
+}

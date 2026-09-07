@@ -1,0 +1,22 @@
+{
+  "python.defaultInterpreterPath": "~/myproject/bin/python",
+  "python.terminal.activateEnvironment": true,
+
+  "editor.fontSize": 15,
+  "editor.lineNumbers": "on",
+  "editor.minimap.enabled": false,
+  "editor.wordWrap": "on",
+  "editor.stickyScroll.enabled": true,
+
+  "terminal.integrated.fontSize": 14,
+
+  "workbench.startupEditor": "none",
+  "explorer.compactFolders": false,
+
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/.ipynb_checkpoints": true,
+    "**/*.pyc": true,
+    "**/.DS_Store": true
+  }
+}

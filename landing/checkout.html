@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SentryWatch — live checkout demo</title>
+<style>
+  :root {
+    --ink:#0f1115; --text:#1a1f2b; --dim:#646d80; --line:#e4e7ee;
+    --bg:#fff; --soft:#f6f7fa;
+    --acc:#2f6fe4; --acc-d:#2559bd; --acc-soft:#eaf1fd;
+    --ok:#1f7346; --ok-soft:#e9f5ed;
+    --warn:#8a6011; --warn-soft:#fdf4e3;
+    --bad:#b32b30; --bad-soft:#fdeeee;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--soft); color:var(--text);
+         font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+         -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:1080px; margin:0 auto; padding:0 28px; }
+
+  nav { background:var(--ink); }
+  .navin { display:flex; align-items:center; height:58px; gap:28px; }
+  .brand { color:#fff; font-weight:700; font-size:16.5px; letter-spacing:-.02em;
+           text-decoration:none; }
+  .brand span { color:#7aa8f5; }
+  .navlinks { margin-left:auto; display:flex; gap:24px; }
+  .navlinks a { color:#a8b0c0; text-decoration:none; font-size:14px; }
+  .navlinks a:hover { color:#fff; }
+
+  .banner { background:var(--acc-soft); border-bottom:1px solid #d3e2fa;
+            font-size:13.5px; color:var(--acc-d); padding:11px 0; }
+  .banner b { font-weight:600; }
+
+  h1 { font-size:29px; letter-spacing:-.025em; margin:38px 0 6px; color:var(--ink);
+       font-weight:700; }
+  .lede { color:var(--dim); margin:0 0 26px; font-size:16px; }
+
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:22px; padding-bottom:56px; }
+  @media (max-width:880px){ .grid { grid-template-columns:1fr; } }
+  .panel { background:#fff; border:1px solid var(--line); border-radius:14px; padding:24px; }
+  h2 { font-size:16.5px; margin:0 0 4px; color:var(--ink); }
+  .hint { color:var(--dim); font-size:13.5px; margin:0 0 18px; }
+
+  label { display:block; font-size:13.5px; font-weight:600; margin:15px 0 6px; }
+  input, select { width:100%; padding:11px 13px; border:1px solid var(--line);
+                  border-radius:9px; font-size:15px; font-family:inherit; background:#fff; }
+  input:focus, select:focus { outline:2px solid #cfe0fb; border-color:var(--acc); }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:13px; }
+
+  button { background:var(--acc); color:#fff; border:0; border-radius:9px;
+           padding:13px 20px; font-size:15.5px; font-weight:600; cursor:pointer;
+           font-family:inherit; width:100%; margin-top:22px; }
+  button:hover { background:var(--acc-d); }
+  button:disabled { background:#a9bbd6; cursor:not-allowed; }
+  .ghost { background:#fff; color:var(--text); border:1px solid var(--line);
+           font-size:13px; padding:9px 13px; width:auto; margin:0; font-weight:500;
+           border-radius:8px; }
+  .ghost:hover { background:var(--soft); border-color:#cbd2de; }
+  .ghost:disabled { background:var(--soft); color:var(--dim); }
+  .presets { display:flex; gap:9px; flex-wrap:wrap; margin-top:20px;
+             padding-top:18px; border-top:1px solid var(--line); }
+  .presets .plabel { width:100%; font-size:12.5px; color:var(--dim); margin-bottom:3px;
+                     font-weight:600; }
+
+  .err { color:var(--bad); background:var(--bad-soft); border-radius:9px;
+         padding:11px 14px; font-size:13.5px; margin-top:12px; display:none; }
+
+  .verdict { border-radius:12px; padding:20px 22px; margin-bottom:18px; display:none; }
+  .verdict .v { font-size:27px; font-weight:700; letter-spacing:-.02em; line-height:1.1; }
+  .verdict .amt { font-size:13.5px; margin-top:5px; opacity:.8; }
+  .v-APPROVE { background:var(--ok-soft);   color:var(--ok); }
+  .v-REVIEW  { background:var(--warn-soft); color:var(--warn); }
+  .v-DECLINE { background:var(--bad-soft);  color:var(--bad); }
+
+  .why { margin:0 0 18px; padding:0; list-style:none; display:none; }
+  .why li { padding:9px 0 9px 22px; position:relative; font-size:14px;
+            border-bottom:1px solid var(--line); }
+  .why li:last-child { border:0; }
+  .why li::before { content:"›"; position:absolute; left:5px; color:var(--dim);
+                    font-weight:700; }
+
+  table.kv { width:100%; border-collapse:collapse; font-size:14px; display:none; }
+  table.kv td { padding:9px 0; border-bottom:1px solid var(--line); }
+  table.kv tr:last-child td { border:0; }
+  table.kv td:last-child { text-align:right; font-variant-numeric:tabular-nums;
+                           font-weight:600; }
+  .muted { color:var(--dim); font-weight:400 !important; }
+
+  .note { background:var(--soft); border-radius:10px; padding:14px 17px; font-size:13px;
+          color:var(--dim); line-height:1.6; margin-top:20px; }
+  .note b { color:var(--text); }
+  .empty { color:var(--dim); font-size:14.5px; padding:30px 0; text-align:center; }
+  footer { color:var(--dim); font-size:13.5px; padding:0 0 50px; }
+  footer a { color:var(--acc); text-decoration:none; margin-right:20px; }
+</style>
+</head>
+<body>
+
+<nav><div class="wrap navin">
+  <a class="brand" href="/">Sentry<span>Watch</span></a>
+  <div class="navlinks">
+    <a href="/">Home</a><a href="/setup">Set up</a><a href="/dashboard">Dashboard</a>
+  </div>
+</div></nav>
+
+<div class="banner"><div class="wrap">
+  <b>This is a customer's checkout, not SentryWatch's.</b>
+  It calls the scoring service and waits for a verdict before the payment would be taken.
+</div></div>
+
+<div class="wrap">
+  <h1>Northside Electronics</h1>
+  <p class="lede">Demo storefront wired to the live scoring service.</p>
+
+<div class="grid">
+
+  <div class="panel">
+    <h2>Payment</h2>
+    <p class="hint">Submitting sends one POST and blocks on the answer.</p>
+
+    <label for="acct">Customer account</label>
+    <select id="acct">
+      <option value="CARD-00">CARD-00</option>
+      <option value="CARD-01">CARD-01</option>
+      <option value="CARD-02">CARD-02</option>
+      <option value="SHOP-DEMO" selected>SHOP-DEMO</option>
+    </select>
+
+    <div class="row">
+      <div>
+        <label for="amt">Amount</label>
+        <input id="amt" type="number" step="0.01" min="0" value="42.50">
+      </div>
+      <div>
+        <label for="item">Item</label>
+        <input id="item" type="text" value="USB-C cable">
+      </div>
+    </div>
+
+    <button id="pay">Pay now</button>
+    <div class="err" id="err"></div>
+
+    <div class="presets">
+      <span class="plabel">Try a scenario</span>
+      <button class="ghost" id="train">1. Teach it a baseline (35×)</button>
+      <button class="ghost" data-amt="42.50">2. Normal purchase</button>
+      <button class="ghost" data-amt="9800">3. Unusually large</button>
+      <button class="ghost" id="burst">4. Card-testing burst (12×)</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Decision</h2>
+    <p class="hint">Returned by the service, in real time.</p>
+
+    <div class="verdict" id="verdict">
+      <div class="v" id="vtext">—</div>
+      <div class="amt" id="vamt"></div>
+    </div>
+
+    <ul class="why" id="why"></ul>
+
+    <table class="kv" id="kv">
+      <tr><td class="muted">Account</td><td id="k-acct">—</td></tr>
+      <tr><td class="muted">Typical for this account</td><td id="k-mean">—</td></tr>
+      <tr><td class="muted">Transactions seen</td><td id="k-n">—</td></tr>
+      <tr><td class="muted">Z-score</td><td id="k-z">—</td></tr>
+      <tr><td class="muted">Transactions this hour</td><td id="k-vel">—</td></tr>
+    </table>
+
+    <div class="empty" id="empty">Submit a payment to see the decision.</div>
+
+    <div class="note" id="note" style="display:none"></div>
+  </div>
+
+</div>
+
+<footer>
+  <a href="/dashboard">Operations dashboard</a>
+  <a href="/health">Service health</a>
+  <a href="/baseline-stats">Baseline statistics</a>
+</footer>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const money = n => (n === null || n === undefined) ? '—'
+  : Number(n).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+
+async function post(amount, account) {
+  const r = await fetch('/score-checkout', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({Time: Date.now()/1000, Amount: amount, account_id: account})
+  });
+  if (!r.ok) throw new Error('service returned ' + r.status);
+  return r.json();
+}
+
+function render(d) {
+  $('empty').style.display = 'none';
+  const v = $('verdict');
+  v.style.display = 'block';
+  v.className = 'verdict v-' + d.verdict;
+  $('vtext').textContent = d.verdict;
+  $('vamt').textContent = money(d.amount) + ' on ' + d.account_id;
+
+  const why = $('why');
+  why.style.display = 'block';
+  const rs = (d.reasons && d.reasons.length) ? d.reasons
+           : ['nothing unusual about this transaction'];
+  why.innerHTML = rs.map(r => '<li>' + r + '</li>').join('');
+
+  $('kv').style.display = 'table';
+  $('k-acct').textContent = d.account_id;
+  $('k-mean').textContent = d.account_warm ? money(d.account_mean)
+    : 'still learning (' + d.account_n + ' of 30)';
+  $('k-n').textContent = d.account_n;
+  const z = d.account_warm ? d.account_z : d.global_z;
+  $('k-z').textContent = (z === null || z === undefined ? '—' : Number(z).toFixed(2))
+    + (d.account_warm ? ' vs own history' : ' vs all accounts');
+  $('k-vel').textContent = d.txn_count_1h;
+
+  const n = $('note');
+  n.style.display = 'block';
+  n.innerHTML = '<b>What is not running here.</b> ' + d.model_note;
+}
+
+async function pay(amount, account) {
+  $('err').style.display = 'none';
+  $('pay').disabled = true;
+  try {
+    render(await post(amount, account));
+  } catch (e) {
+    $('err').textContent = 'Could not reach the scoring service. Is it running on port 8000?';
+    $('err').style.display = 'block';
+  }
+  $('pay').disabled = false;
+}
+
+const param = new URLSearchParams(location.search).get('account');
+if (param) {
+  const sel = $('acct');
+  if (![...sel.options].some(o => o.value === param)) {
+    const o = document.createElement('option');
+    o.value = o.textContent = param;
+    sel.insertBefore(o, sel.firstChild);
+  }
+  sel.value = param;
+}
+
+$('pay').onclick = () => {
+  const a = parseFloat($('amt').value);
+  if (!(a > 0)) {
+    $('err').textContent = 'Enter an amount greater than zero.';
+    $('err').style.display = 'block';
+    return;
+  }
+  pay(a, $('acct').value);
+};
+$('amt').oninput = () => { $('err').style.display = 'none'; };
+
+document.querySelectorAll('.ghost[data-amt]').forEach(b => {
+  b.onclick = () => {
+    $('amt').value = b.dataset.amt;
+    pay(parseFloat(b.dataset.amt), $('acct').value);
+  };
+});
+
+async function repeat(n, amountFn, id) {
+  const btn = $(id), old = btn.textContent;
+  document.querySelectorAll('.ghost').forEach(b => b.disabled = true);
+  let last;
+  for (let i = 0; i < n; i++) {
+    btn.textContent = (i + 1) + ' / ' + n;
+    last = await post(amountFn(i), $('acct').value);
+  }
+  render(last);
+  btn.textContent = old;
+  document.querySelectorAll('.ghost').forEach(b => b.disabled = false);
+}
+
+$('burst').onclick = () => repeat(12, () => 1 + Math.random() * 3, 'burst');
+$('train').onclick = () => repeat(35, () => 35 + Math.random() * 15, 'train');
+</script>
+</body>
+</html>

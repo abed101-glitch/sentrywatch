@@ -1,0 +1,25 @@
+# Credentials — never commit these
+.env
+
+# Dataset — the full 144MB file is too big for git.
+# data/creditcard_sample.csv IS committed so the deployed demo can boot.
+data/creditcard.csv
+
+# Trained model — committed (1.7MB) so the deployed service can boot.
+src/*.joblib
+
+# Python
+__pycache__/
+*.py[cod]
+myproject/
+venv/
+.venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+
+# Class 7 — per-account baseline database (regenerable)
+data/*.db
