@@ -393,9 +393,15 @@ def dispatch_alert(result: dict, tx: dict, channels=None, deliver: bool = True) 
             send_email(msg["email_subject"], msg["email_plain"], msg["email_html"])
         )
 
+    sent = any(r.get("ok") for r in results)
     return {
-        "sent": any(r.get("ok") for r in results),
+        "sent": sent,
+        # would_send means "the throttle allowed it", not "it arrived".
         "would_send": True,
+        "delivery_failed": not sent,
+        "delivery_error": None if sent else "; ".join(
+            str(r.get("error") or r.get("detail") or "") for r in results
+        ).strip("; ") or "no channel delivered",
         "suppressed": False,
         "dedup_key": key,
         "rolled_up_events": suppressed,

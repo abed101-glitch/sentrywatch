@@ -163,6 +163,19 @@ def test_unconfigured_credentials():
           r2.get("error"))
     check("alert_config reports it cannot deliver",
           alerts.alert_config()["can_deliver"] is False)
+    # Class 11 - a failed delivery must NOT be recorded as a sent alert
+    res = {"severity": "high", "account_id": "ACC-1", "account_warm": True,
+           "account_mean": 50.0, "account_z": 9.0, "global_z": 4.0,
+           "account_n": 200, "txn_count_1h": 1, "ml_flagged": True,
+           "ml_score": -0.2, "baseline_drift": None, "reason": "test"}
+    alerts.throttle.reset() if hasattr(alerts.throttle, "reset") else None
+    d = alerts.dispatch_alert(res, {"Amount": 4000.0, "account_id": "ACC-1"},
+                              deliver=True)
+    check("a failed telegram send reports sent=False", d["sent"] is False, d.get("sent"))
+    check("and flags delivery_failed", d.get("delivery_failed") is True)
+    check("and names the reason", bool(d.get("delivery_error")), d.get("delivery_error"))
+    check("delivered_by is the service, not n8n", d.get("delivered_by") == "service")
+
     alerts.set_chat_id(None)
 
     # Class 11 - the deep-link connect flow must also fail loudly without a token

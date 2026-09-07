@@ -81,7 +81,10 @@ class EventLog:
                 1 if result.get("ml_flagged") else 0,
                 result.get("ml_score"),
                 result.get("reason"),
-                1 if (alert.get("sent") or alert.get("would_send")) else 0,
+                # Only count it as sent if it actually went, or if delivery was
+                # deliberately handed to n8n. A failed send is NOT a sent alert.
+                1 if (alert.get("sent")
+                      or alert.get("delivered_by") == "n8n") else 0,
                 1 if alert.get("suppressed") else 0,
                 alert.get("suppression_reason"),
                 alert.get("dedup_key"),
