@@ -392,7 +392,7 @@ def _feed_loop():
                          "suppression_reason": "severity below threshold",
                          "message": None}
             else:
-                alert = dispatch_alert(result, tx, deliver=False)
+                alert = dispatch_alert(result, tx, deliver=True)
             EVENTS.record(result, alert)
             FEED["sent"] += 1
         except Exception as exc:
@@ -401,16 +401,32 @@ def _feed_loop():
 
 
 @app.post("/feed/start")
-def feed_start(interval: float = 1.0):
+def feed_start(interval: float = 1.0, warm: bool = True):
     if FEED["on"]:
         return {"running": True, "already": True, "scored": FEED["sent"]}
+
+    warmed = 0
+    if warm:
+        # Without this every account is cold for its first 30 events, the z-score
+        # falls back to the global baseline, and the dashboard shows 30 rows of
+        # "learning" before anything interesting can happen.
+        pool = real_amounts()
+        rng = random.Random(7)
+        for i in range(REPLAY.n_accounts):
+            acct = f"CARD-{i:02d}"
+            seed_account(acct, rng.sample(pool, baseline_store.MIN_HISTORY * 2))
+            warmed += 1
+
     FEED["interval"] = max(0.2, min(interval, 10.0))
     FEED["on"] = True
     t = threading.Thread(target=_feed_loop, daemon=True)
     FEED["thread"] = t
     t.start()
-    return {"running": True, "interval": FEED["interval"],
-            "note": "replaying real transactions through the full scoring path"}
+    return {"running": True, "interval": FEED["interval"], "warmed_accounts": warmed,
+            "alerts": alerts_mod.alert_config(),
+            "note": ("replaying real transactions through the full scoring path"
+                     + (f"; {warmed} accounts pre-warmed from real history" if warmed
+                        else "; accounts start cold"))}
 
 
 @app.post("/feed/stop")
