@@ -550,7 +550,9 @@ def alert_test():
         "This is a test message from the live service. "
         "Real alerts will quote the account's own learned baseline."
     )
-    return {"sent": bool(r.get("ok")), **cfg, "detail": r}
+    return {"sent": bool(r.get("ok")), **cfg,
+            "error": None if r.get("ok") else r.get("error"),
+            "detail": r}
 
 
 @app.get("/feed/status")

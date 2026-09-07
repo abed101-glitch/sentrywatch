@@ -303,7 +303,8 @@ $('savechat').onclick = async () => {
     } else {
       $('chaterr').textContent = d.error === 'bot token missing on the server'
         ? 'The server has no bot token set. Add TELEGRAM_BOT_TOKEN in Render, then redeploy.'
-        : ('Could not deliver: ' + (d.detail?.detail || d.error || 'unknown'));
+        : ('Could not deliver — ' + (d.detail?.results?.[0]?.error
+                                    || d.detail?.error || d.error || 'unknown reason'));
       $('chaterr').style.display = 'block';
     }
   } catch (e) {

@@ -327,8 +327,30 @@ def send_telegram(text: str, chat_id: str | None = None) -> dict:
             },
             timeout=HTTP_TIMEOUT,
         )
-        return {"channel": "telegram", "ok": r.ok, "status": r.status_code,
-                "detail": None if r.ok else r.text[:300]}
+        if r.ok:
+            return {"channel": "telegram", "ok": True, "status": r.status_code}
+        # Translate Telegram's codes into something a human can act on.
+        code = r.status_code
+        try:
+            desc = r.json().get("description", "")
+        except Exception:
+            desc = r.text[:200]
+        if code == 404:
+            why = ("the bot token is not valid - it was probably revoked, or has a "
+                   "stray space or quote around it. Check /getMe with the token.")
+        elif code == 400 and "chat not found" in desc.lower():
+            why = (f"chat {chat_id} does not exist, or you have never opened a "
+                   "conversation with this bot. Message the bot once, then retry.")
+        elif code == 403:
+            why = "the bot is blocked by that chat, or was never started there."
+        elif code == 401:
+            why = "the token was rejected as unauthorised."
+        elif code == 429:
+            why = "Telegram is rate limiting - wait a moment and retry."
+        else:
+            why = desc or f"HTTP {code}"
+        return {"channel": "telegram", "ok": False, "status": code,
+                "error": why, "detail": desc}
     except Exception as e:
         return {"channel": "telegram", "ok": False, "error": str(e)}
 
