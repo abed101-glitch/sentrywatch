@@ -74,6 +74,19 @@ class Replay:
         self._rows = stream
         self._loaded = True
 
+    def nearest(self, amount: float) -> dict:
+        """
+        The real row from credit.csv whose Amount is closest to `amount`.
+
+        A live checkout order has no V1-V28 PCA features - those only exist
+        in the original bank data credit.csv was built from. This lets the
+        trained model actually run against a real order by borrowing the
+        feature vector of the closest real transaction by amount.
+        """
+        with self._lock:
+            self._load()
+            return dict(min(self._rows, key=lambda r: abs(r["Amount"] - amount)))
+
     def next(self) -> dict:
         with self._lock:
             self._load()

@@ -1,12 +1,14 @@
 # Class 6-8 - scoring service with per-account baselines and alerting
 
 import os
+import math
 import time
 import random
 import threading
 import joblib
 import pandas as pd
 from pathlib import Path
+from datetime import datetime, timezone
 from fastapi import FastAPI, UploadFile, File, Form
 from pydantic import BaseModel, ConfigDict
 
@@ -162,6 +164,39 @@ def _score(data: dict) -> dict:
         "txn_count_1h": bf["txn_count_1h"],
         "seconds_since_last": bf["seconds_since_last"],
         "baseline_drift": bf["baseline_drift"],
+    }
+
+
+def _kaggle_score(amount: float, ts: float) -> dict:
+    """
+    Actually run the trained isolation forest against a real checkout order.
+
+    A live checkout order only has an Amount and a timestamp - it has none
+    of the V1-V28 PCA features the model was trained on, because those come
+    from the original bank data behind credit.csv, not from a storefront.
+    So this finds the closest real transaction in credit.csv by amount and
+    borrows ITS feature vector, then scores that real, dataset-sourced
+    vector through the same model used everywhere else in this pipeline.
+    That is the actual "compare against credit.csv" step.
+    """
+    match = REPLAY.nearest(amount)
+    row = {c: match[c] for c in FEATURE_COLS if c != "hour"}
+    row["hour"] = (ts / 3600) % 24
+    X = pd.DataFrame([row])[FEATURE_COLS]
+
+    ml_raw = MODEL.predict(X)[0]                      # -1 anomaly, 1 normal
+    ml_score = float(MODEL.decision_function(X)[0])    # lower = more anomalous
+
+    # decision_function has no fixed range; squash it into a 0-100 risk score.
+    risk_pct = round(100 / (1 + math.exp(ml_score * 12)), 1)
+
+    return {
+        "ml_flagged": bool(ml_raw == -1),
+        "ml_score": round(ml_score, 4),
+        "risk_pct": risk_pct,
+        "matched_amount": round(float(match["Amount"]), 2),
+        "matched_was_fraud": bool(match["true_fraud"]),
+        "rows_compared": len(REPLAY._rows),
     }
 
 
@@ -344,35 +379,145 @@ def checkout():
 
 
 @app.post("/score-checkout")
-def score_checkout(tx: Transaction):
+def score_checkout(tx: Transaction, alert: bool = True):
+    """
+    What a merchant's checkout calls, on Pay Now.
+
+    Flow: capture the order -> run it through the trained isolation forest
+    (scored against a real feature vector pulled from credit.csv) -> combine
+    that with the account's own baseline (also seeded from real Kaggle
+    amounts) -> only once that final verdict exists, send it to Telegram.
+    """
     data = tx.model_dump()
-    bf = BASELINES.observe(data["account_id"], data["Amount"],
-                           data.get("Time") or time.time())
+    account_id = str(data.get("account_id") or "unknown")
+    amount = float(data["Amount"])
+    ts = data.get("Time") or time.time()
+
+    # A cold account has nothing meaningful to be compared against, so seed it
+    # from the real dataset first. load() is read-only - checking warmth must
+    # not itself add a data point.
+    seeded = 0
+    if not BASELINES.load(account_id).is_warm:
+        pool = real_amounts()
+        seeded = seed_account(
+            account_id,
+            random.Random(42).sample(pool, min(baseline_store.MIN_HISTORY * 4,
+                                               len(pool))))
+
+    bf = BASELINES.observe(account_id, amount, ts)
+
+    # Step 2-5: activate the Kaggle-trained model and compare against credit.csv.
+    model_error = None
+    try:
+        kaggle = _kaggle_score(amount, ts)
+    except Exception as exc:
+        model_error = f"{type(exc).__name__}: {exc}"
+        kaggle = {"ml_flagged": False, "ml_score": 0.0, "risk_pct": None,
+                  "matched_amount": None, "matched_was_fraud": None,
+                  "rows_compared": 0}
+
     severity, reasons = combine_severity(
         account_z=bf["account_z"], global_z=bf["global_z"],
-        txn_count_1h=bf["txn_count_1h"], ml_flagged=False,
+        txn_count_1h=bf["txn_count_1h"], ml_flagged=kaggle["ml_flagged"],
         account_warm=bf["account_warm"], min_signals=1, require_ml=False,
     )
+    if model_error:
+        # Never report "safe" when the model step itself failed.
+        severity = "medium" if severity == "normal" else severity
+        reasons = reasons + [f"model comparison failed - {model_error}"]
+
     verdict = {"high": "DECLINE", "medium": "REVIEW", "normal": "APPROVE"}[severity]
-    return {
-        "verdict": verdict,
+    fraud_result = "NOT FRAUD" if (verdict == "APPROVE" and not model_error) else "FRAUD"
+
+    result = {
         "severity": severity,
-        "reasons": reasons,
-        "account_id": data["account_id"],
-        "amount": data["Amount"],
-        "account_mean": bf["account_mean"],
-        "account_std": bf["account_std"],
-        "account_n": bf["account_n"],
-        "account_warm": bf["account_warm"],
-        "account_z": bf["account_z"],
-        "global_z": bf["global_z"],
+        "reason": "; ".join(reasons) or "nothing unusual about this transaction",
+        "z_score": round(float(bf["account_z"] or 0.0), 3),
+        "z_basis": "account" if bf["account_warm"] else "global",
+        "ml_flagged": kaggle["ml_flagged"], "ml_score": kaggle["ml_score"],
+        "account_id": account_id,
+        "account_z": bf["account_z"], "global_z": bf["global_z"],
+        "account_mean": bf["account_mean"], "account_std": bf["account_std"],
+        "account_n": bf["account_n"], "account_warm": bf["account_warm"],
         "txn_count_1h": bf["txn_count_1h"],
-        "model_scored": False,
-        "model_note": ("The isolation forest is not scored here. It needs V1-V28, "
-                       "which are PCA components from the research dataset and cannot "
-                       "be computed from a live transaction. Only the rule layer - "
-                       "per-account amount baseline and velocity - runs on real "
-                       "merchant input."),
+        "baseline_drift": bf["baseline_drift"], "Amount": amount,
+    }
+
+    # Step 6-7: only now, with a final result in hand, tell Telegram.
+    if not alert:
+        outcome = {"sent": False, "would_send": False, "suppressed": False,
+                   "suppression_reason": "alerts disabled for this request",
+                   "message": None}
+    elif model_error:
+        outcome = {"sent": False, "would_send": False, "suppressed": False,
+                   "suppression_reason": "model comparison failed - not sending a "
+                                          "result until it can be trusted",
+                   "message": None}
+    else:
+        icon = "🚨 FRAUD DETECTED" if fraud_result == "FRAUD" else "✅ TRANSACTION SAFE"
+        risk = f"{kaggle['risk_pct']}%" if kaggle["risk_pct"] is not None else "n/a"
+        matched = (f"${kaggle['matched_amount']:,.2f}"
+                   + (" (a real fraud case)" if kaggle["matched_was_fraud"] else " (a real normal case)")
+                   if kaggle["matched_amount"] is not None else "n/a")
+        text = (
+            f"{icon}\n\n"
+            f"Amount: ${amount:,.2f}\n"
+            f"Account: {account_id}\n"
+            f"Item/note: {data.get('item') or 'n/a'}\n"
+            f"Status: {fraud_result} ({verdict})\n"
+            f"Risk score: {risk}\n"
+            f"Reason: {result['reason']}\n"
+            f"Compared against (credit.csv): {matched}\n"
+            f"Time: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}"
+        )
+        tg = alerts_mod.send_telegram(text)
+        outcome = {
+            "sent": bool(tg.get("ok")), "would_send": True, "suppressed": False,
+            "delivery_error": None if tg.get("ok") else tg.get("error"),
+            "message": text, "delivered_by": "service",
+        }
+
+    EVENTS.record(result, outcome)
+
+    return {
+        "verdict": verdict, "severity": severity, "reasons": reasons,
+        "fraud_result": fraud_result,
+        "account_id": account_id, "amount": amount,
+        "account_mean": bf["account_mean"], "account_std": bf["account_std"],
+        "account_n": bf["account_n"], "account_warm": bf["account_warm"],
+        "account_z": bf["account_z"], "global_z": bf["global_z"],
+        "txn_count_1h": bf["txn_count_1h"],
+        "baseline": {
+            "source": "Kaggle Credit Card Fraud dataset (credit.csv), non-fraud rows only",
+            "seeded_now": seeded,
+            "orders_behind_it": bf["account_n"],
+        },
+        "model": {
+            "scored": model_error is None,
+            "flagged": kaggle["ml_flagged"],
+            "risk_pct": kaggle["risk_pct"],
+            "matched_amount": kaggle["matched_amount"],
+            "matched_was_fraud": kaggle["matched_was_fraud"],
+            "rows_compared": kaggle["rows_compared"],
+            "error": model_error,
+        },
+        "alert": {
+            "attempted": bool(alert and not model_error),
+            "sent": bool(outcome.get("sent")),
+            "suppressed": bool(outcome.get("suppressed")),
+            "reason": (outcome.get("suppression_reason")
+                       or outcome.get("delivery_error")),
+            "message": outcome.get("message"),
+        },
+        "model_scored": model_error is None,
+        "model_note": ("The isolation forest is run for real: it's scored against a "
+                       "feature vector borrowed from the closest-amount real "
+                       "transaction in credit.csv, since a live checkout order has "
+                       "no V1-V28 PCA columns of its own. Combined with the account's "
+                       "own baseline (also seeded from real Kaggle amounts) and "
+                       "velocity to reach the final verdict."
+                       if model_error is None else
+                       f"Model comparison failed, so this was NOT marked safe: {model_error}"),
     }
 
 

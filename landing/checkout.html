@@ -152,7 +152,8 @@
 
   <div class="panel">
     <h2>Decision</h2>
-    <p class="hint">Returned by the service, in real time.</p>
+    <p class="hint">Returned by the service, in real time. Anything other than
+      APPROVE sends a Telegram alert.</p>
 
     <div class="verdict" id="verdict">
       <div class="v" id="vtext">—</div>
@@ -167,6 +168,8 @@
       <tr><td class="muted">Transactions seen</td><td id="k-n">—</td></tr>
       <tr><td class="muted">Z-score</td><td id="k-z">—</td></tr>
       <tr><td class="muted">Transactions this hour</td><td id="k-vel">—</td></tr>
+      <tr><td class="muted">Compared against</td><td id="k-base">—</td></tr>
+      <tr><td class="muted">Telegram</td><td id="k-tg">—</td></tr>
     </table>
 
     <div class="empty" id="empty">Submit a payment to see the decision.</div>
@@ -202,6 +205,8 @@ function render(d) {
   $('empty').style.display = 'none';
   const v = $('verdict');
   v.style.display = 'block';
+  v.style.background = '';
+  v.style.color = '';
   v.className = 'verdict v-' + d.verdict;
   $('vtext').textContent = d.verdict;
   $('vamt').textContent = money(d.amount) + ' on ' + d.account_id;
@@ -222,19 +227,48 @@ function render(d) {
     + (d.account_warm ? ' vs own history' : ' vs all accounts');
   $('k-vel').textContent = d.txn_count_1h;
 
+  $('k-base').textContent = d.baseline
+    ? d.baseline.orders_behind_it + ' real Kaggle orders'
+    : '—';
+
+  const a = d.alert || {};
+  const tg = $('k-tg');
+  if (!a.attempted)      { tg.textContent = 'not needed — approved'; tg.style.color = 'var(--dim)'; }
+  else if (a.sent)       { tg.textContent = 'alert sent ✓';          tg.style.color = 'var(--ok)'; }
+  else if (a.suppressed) { tg.textContent = 'suppressed (throttle)'; tg.style.color = 'var(--warn)'; }
+  else                   { tg.textContent = 'failed — ' + (a.reason || 'unknown'); tg.style.color = 'var(--bad)'; }
+
   const n = $('note');
   n.style.display = 'block';
-  n.innerHTML = '<b>What is not running here.</b> ' + d.model_note;
+  n.innerHTML = '<b>Compared against real data.</b> This account\'s baseline is built from '
+    + (d.baseline ? d.baseline.orders_behind_it : 0)
+    + ' real amounts out of the Kaggle Credit Card Fraud dataset — fraud rows excluded, '
+    + 'because a baseline is what normal looks like.<br><br><b>Model.</b> '
+    + d.model_note;
 }
 
 async function pay(amount, account) {
   $('err').style.display = 'none';
   $('pay').disabled = true;
+
+  $('empty').style.display = 'none';
+  $('why').style.display = 'none';
+  $('kv').style.display = 'none';
+  $('note').style.display = 'none';
+  const v = $('verdict');
+  v.style.display = 'block';
+  v.className = 'verdict';
+  v.style.background = 'var(--soft)';
+  v.style.color = 'var(--dim)';
+  $('vtext').textContent = 'Analyzing transaction…';
+  $('vamt').textContent = 'activating model, comparing against credit.csv…';
+
   try {
     render(await post(amount, account));
   } catch (e) {
     $('err').textContent = 'Could not reach the scoring service. Is it running on port 8000?';
     $('err').style.display = 'block';
+    v.style.display = 'none';
   }
   $('pay').disabled = false;
 }
