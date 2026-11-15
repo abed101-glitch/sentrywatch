@@ -1,41 +1,31 @@
-# Real-Time Anomaly and Fraud Detection Pipeline
+# SentryWatch — Real-Time Fraud Detection Pipeline
 
-**CSE 299, Section 13** · Abed Gazi (2132538642) · 11 classes over 10 weeks
+An event-driven fraud detection pipeline. Transactions arrive at an **n8n** webhook and are
+scored by a **FastAPI** service that combines an **Isolation Forest** with per-account
+behavioural baselines. High-severity anomalies trigger throttled **Telegram** alerts, and every
+event is logged to **Google Sheets** so precision can be measured against ground truth.
 
-An event-driven fraud detection pipeline: transactions arrive at an n8n webhook, are scored
-by a Python service combining an Isolation Forest with per-account behavioural baselines,
-and high-severity anomalies trigger throttled real-time alerts.
+**Stack:** Python · FastAPI · scikit-learn · pandas · NumPy · SQLite · n8n · Telegram Bot API · Google Sheets API · pytest
 
-> **Deviation from the proposal.** The original plan was 10 classes. Class 7 was added to
-> implement the per-account rolling statistics the proposal's architecture section
-> specifies but which nothing through Class 6 actually did — the z-score was global.
-> Everything from the original Class 7 onward shifts by one. Total is now 11 classes.
+## Key results
 
----
+Measured on the Kaggle Credit Card Fraud dataset (284,807 transactions, 0.173% fraud):
 
-## Status
+| | Before (z-score baseline) | After (production model) |
+|---|---:|---:|
+| Precision | 0.27% | **25.4%** |
+| Recall | 2.24% | **25.0%** |
+| False alarms per real fraud | 370 | **2.9** |
 
-| Class | Deliverable | Code | n8n | Diary |
-|---|---|:--:|:--:|:--:|
-| 1 | Domain + dataset chosen | — | — | done |
-| 2 | Feature set v1 | done | — | done |
-| 3 | Rule-based detector | done | — | done |
-| 4 | ML anomaly model | done | — | **skeleton** |
-| 5 | Live event ingestion | — | **missing export** | **skeleton** |
-| 6 | End-to-end scoring pipeline | done | done | done |
-| 7 | **Per-account baselines** *(added)* | done | — | **skeleton** |
-| 8 | Real-time alerts | done | done | **skeleton** |
-| 9 | Automation + dashboard + landing page | done | done | **skeleton** |
-| 10 | **Escalation policy** | done | — | **skeleton** |
-| 11 | Final demo + report | — | — | — |
+- **94× precision gain.** A controlled comparison shows it came from the feature set, not from
+  switching to machine learning: the same Isolation Forest given 3 hand-made features was the worst detector built.
+- **Per-account streaming baselines** (Welford's algorithm + EWMA + velocity): 0.008 ms per
+  transaction (~121,000 txn/s) and 127 bytes per account.
+- **96 unit tests** covering the baseline store and the alerting/throttling logic.
 
-**Three things to close before Class 8:**
+Full analysis and caveats: [`results/metrics_progression.md`](results/metrics_progression.md)
 
-1. Fill the `_SKELETON` diaries (Classes 4, 5, 7, 8, 9, 10) and drop the suffix
-2. Export your Class 5 webhook workflow from n8n → `n8n/class05_webhook_ingestion.json`
-3. Copy `creditcard.csv` into `data/` and run `train_model.py` so `model.joblib` lives here
-
----
+*Built as my CSE 299 (Junior Design) project at North South University, delivered incrementally over 11 sessions.*
 
 ## Layout
 
